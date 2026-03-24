@@ -1,0 +1,23 @@
+{
+  "name": "klipy",
+  "version": "0.0.1",
+  "module": "src/server/index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "bun build.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/lodash": "^4.17.24",
+    "@types/react": "^19.2.14"
+  },
+  "peerDependencies": {
+    "typescript": "^5",
+    "react": "^19",
+    "reselect": "^5",
+    "re-reselect": "^5"
+  },
+  "dependencies": {
+    "lodash": "^4.17.23"
+  }
+}

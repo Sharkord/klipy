@@ -1,0 +1,10 @@
+{
+  "id": "klipy",
+  "name": "Klipy",
+  "author": "Diogo Martino",
+  "description": "Share GIFS from Klipy.",
+  "homepage": "https://github.com/Sharkord/klipy",
+  "logo": "https://i.imgur.com/LvqJc0W.png",
+  "sdkVersion": 1,
+  "version": "0.0.1"
+}
