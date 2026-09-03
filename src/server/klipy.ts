@@ -1,4 +1,4 @@
-import type { TGif, TGifListResponse } from "../actions-contract";
+import type { TGif, TGifListResponse } from "../contract";
 
 type TAuthParams = {
   apiKey: string;

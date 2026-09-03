@@ -1,9 +1,20 @@
 import {
+  actions,
+  createCallAction,
+  useCanUseAction,
+  useStoreSelector,
+  useUserData,
+} from "@sharkord/plugin-sdk/client";
+import {
   Button,
   Input,
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from "@sharkord/ui";
 import debounce from "lodash/debounce";
 import {
@@ -13,9 +24,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type UIEvent,
 } from "react";
-import type { TGif } from "../../../actions-contract";
+import type { TGif, TKlipy } from "../../../contract";
 import { GifGrid } from "./gif-grid";
 import { GifIcon } from "./gif-icon";
 import {
@@ -24,14 +36,21 @@ import {
   emptyStateStyle,
   panelStyle,
   statusTextStyle,
+  tabPanelStyle,
 } from "./styles";
-import { useCallAction } from "../../store/hooks";
+import { FAVORITES_LIMIT, toggleFavorite } from "./user-data";
 
 const PER_PAGE = 16;
 const DEBOUNCE_DELAY = 500;
+const SEARCH_TAB = "search";
+const FAVORITES_TAB = "favorites";
+
+// module scope: it resolves the plugin id from the bundle url once
+const callAction = createCallAction<TKlipy>();
 
 const BrowserButton = memo(() => {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState(SEARCH_TAB);
   const [query, setQuery] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [gifs, setGifs] = useState<TGif[]>([]);
@@ -39,9 +58,20 @@ const BrowserButton = memo(() => {
   const [hasMore, setHasMore] = useState(true);
   const [loadingInitial, setLoadingInitial] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const latestRequestIdRef = useRef(0);
-  const callAction = useCallAction();
+
+  const canBrowse = useCanUseAction<TKlipy>("getTrendingGifs");
+  const selectedChannelId = useStoreSelector((state) => state.selectedChannelId);
+  const { data, save } = useUserData<TKlipy>();
+
+  // save() replaces the whole record, and favorites is the only key in it
+  const favorites = useMemo(() => data.favorites ?? [], [data.favorites]);
+
+  const favoriteIds = useMemo(
+    () => new Set(favorites.map((gif) => gif.id)),
+    [favorites],
+  );
 
   const loadPage = useCallback(
     async ({
@@ -61,7 +91,7 @@ const BrowserButton = memo(() => {
         setLoadingMore(true);
       } else {
         setLoadingInitial(true);
-        setErrorMessage(null);
+        setMessage(null);
       }
 
       try {
@@ -101,7 +131,7 @@ const BrowserButton = memo(() => {
           return;
         }
 
-        setErrorMessage(
+        setMessage(
           append
             ? "Could not load more GIFs right now."
             : nextQuery
@@ -172,6 +202,64 @@ const BrowserButton = memo(() => {
     });
   }, [loadPage, open, searchQuery]);
 
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen);
+
+    if (nextOpen) {
+      setTab(SEARCH_TAB);
+      setQuery("");
+      setSearchQuery("");
+      setMessage(null);
+    }
+  }, []);
+
+  const handleTabChange = useCallback((nextTab: string) => {
+    setTab(nextTab);
+    setMessage(null);
+  }, []);
+
+  const handleQueryChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) =>
+      setQuery(event.currentTarget.value.slice(0, 100)),
+    [],
+  );
+
+  const handleSelect = useCallback(
+    async (gif: TGif) => {
+      if (!selectedChannelId) {
+        return;
+      }
+
+      try {
+        await actions.sendMessage(selectedChannelId, gif.gifUrl);
+      } catch {
+        setMessage("Could not send that GIF.");
+      }
+    },
+    [selectedChannelId],
+  );
+
+  const handleToggleFavorite = useCallback(
+    async (gif: TGif) => {
+      const nextFavorites = toggleFavorite(favorites, gif);
+
+      if (!nextFavorites) {
+        setMessage(
+          `You can keep ${FAVORITES_LIMIT} favorites. Remove one to add another.`,
+        );
+
+        return;
+      }
+
+      try {
+        await save({ favorites: nextFavorites });
+      } catch {
+        setMessage("Could not update your favorites.");
+      }
+    },
+    [favorites, save],
+  );
+
   const handleGridScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
       if (loadingInitial || loadingMore || !hasMore) {
@@ -201,55 +289,70 @@ const BrowserButton = memo(() => {
   );
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
-        if (nextOpen) {
-          setQuery("");
-          setSearchQuery("");
-          setErrorMessage(null);
-        }
-      }}
-    >
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon">
+        <Button variant="ghost" size="icon" disabled={!canBrowse}>
           <GifIcon />
         </Button>
       </PopoverTrigger>
 
       <PopoverContent align="end" style={panelStyle}>
-        <div style={bodyStyle}>
-          <div>
-            <Input
-              placeholder="Search Klipy GIFS..."
-              value={query}
-              onChange={(event) =>
-                setQuery(event.currentTarget.value.slice(0, 100))
-              }
-            />
-          </div>
+        <Tabs value={tab} onValueChange={handleTabChange} style={bodyStyle}>
+          <TabsList>
+            <TabsTrigger value={SEARCH_TAB}>Search</TabsTrigger>
+            <TabsTrigger value={FAVORITES_TAB}>
+              {favorites.length ? `Favorites (${favorites.length})` : "Favorites"}
+            </TabsTrigger>
+          </TabsList>
 
-          <div style={contentStyle}>
-            {errorMessage ? (
-              <p style={statusTextStyle}>{errorMessage}</p>
-            ) : null}
+          {message ? <p style={statusTextStyle}>{message}</p> : null}
 
-            {!loadingInitial && gifs.length === 0 ? (
-              <p style={emptyStateStyle}>No GIFs found.</p>
-            ) : null}
-
-            {loadingInitial ? (
-              <p style={emptyStateStyle}>Loading GIFs...</p>
-            ) : (
-              <GifGrid
-                gifs={gifs}
-                loadingMore={loadingMore}
-                onScroll={handleGridScroll}
+          <TabsContent value={SEARCH_TAB} style={tabPanelStyle}>
+            <div>
+              <Input
+                placeholder="Search Klipy GIFS..."
+                value={query}
+                onChange={handleQueryChange}
               />
-            )}
-          </div>
-        </div>
+            </div>
+
+            <div style={contentStyle}>
+              {!loadingInitial && gifs.length === 0 ? (
+                <p style={emptyStateStyle}>No GIFs found.</p>
+              ) : null}
+
+              {loadingInitial ? (
+                <p style={emptyStateStyle}>Loading GIFs...</p>
+              ) : (
+                <GifGrid
+                  gifs={gifs}
+                  favoriteIds={favoriteIds}
+                  loadingMore={loadingMore}
+                  onScroll={handleGridScroll}
+                  onSelect={handleSelect}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value={FAVORITES_TAB} style={tabPanelStyle}>
+            <div style={contentStyle}>
+              {favorites.length === 0 ? (
+                <p style={emptyStateStyle}>
+                  No favorites yet. Use the star on a GIF to keep it here.
+                </p>
+              ) : (
+                <GifGrid
+                  gifs={favorites}
+                  favoriteIds={favoriteIds}
+                  onSelect={handleSelect}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </PopoverContent>
     </Popover>
   );
