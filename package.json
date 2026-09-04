@@ -6,7 +6,6 @@
   "scripts": {
     "build": "bun build.ts",
     "publish": "bun publish.ts",
-    "test": "bun test",
     "check-types": "tsc --noEmit"
   },
   "devDependencies": {

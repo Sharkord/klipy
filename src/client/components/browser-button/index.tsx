@@ -2,7 +2,7 @@ import {
   actions,
   createCallAction,
   useCanUseAction,
-  useStoreSelector,
+  usePush,
   useUserData,
 } from "@sharkord/plugin-sdk/client";
 import {
@@ -48,7 +48,12 @@ const FAVORITES_TAB = "favorites";
 // module scope: it resolves the plugin id from the bundle url once
 const callAction = createCallAction<TKlipy>();
 
-const BrowserButton = memo(() => {
+type TBrowserButtonProps = {
+  /** the composer this button sits in, which is not the selected channel in a thread */
+  channelId: number;
+};
+
+const BrowserButton = memo(({ channelId }: TBrowserButtonProps) => {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState(SEARCH_TAB);
   const [query, setQuery] = useState("");
@@ -62,7 +67,6 @@ const BrowserButton = memo(() => {
   const latestRequestIdRef = useRef(0);
 
   const canBrowse = useCanUseAction<TKlipy>("getTrendingGifs");
-  const selectedChannelId = useStoreSelector((state) => state.selectedChannelId);
   const { data, save } = useUserData<TKlipy>();
 
   // save() replaces the whole record, and favorites is the only key in it
@@ -226,18 +230,34 @@ const BrowserButton = memo(() => {
 
   const handleSelect = useCallback(
     async (gif: TGif) => {
-      if (!selectedChannelId) {
-        return;
-      }
-
       try {
-        await actions.sendMessage(selectedChannelId, gif.gifUrl);
+        await actions.sendMessage(channelId, gif.gifUrl);
       } catch {
         setMessage("Could not send that GIF.");
       }
     },
-    [selectedChannelId],
+    [channelId],
   );
+
+  // what /gif answers with. the command runs on the server, which can only
+  // author messages as the plugin, so the invoker's own client posts it. every
+  // session the user has open receives this, so the post is claimed first and
+  // only one of them sends
+  usePush<TKlipy>(async (push) => {
+    try {
+      const claimed = await callAction("claimGifPost", {
+        requestId: push.requestId,
+      });
+
+      if (!claimed) {
+        return;
+      }
+
+      await actions.sendMessage(push.channelId, push.gifUrl);
+    } catch {
+      setMessage("Could not post that GIF.");
+    }
+  });
 
   const handleToggleFavorite = useCallback(
     async (gif: TGif) => {
